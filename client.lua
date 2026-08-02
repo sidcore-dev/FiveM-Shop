@@ -1,46 +1,84 @@
 --[[
-    ESX Shop v1.0
+    Universal Shop v2.0
     Author: choda
 ]]
 
-local ESX = nil
+Framework = { Name = 'standalone', Object = nil }
 
-CreateThread(function()
-    while ESX == nil do
-        TriggerEvent('esx:getSharedObject', function(obj) ESX = obj end)
-        Wait(0)
+if GetResourceState('es_extended') == 'started' then
+    Framework.Name = 'esx'
+    TriggerEvent('esx:getSharedObject', function(obj) Framework.Object = obj end)
+elseif GetResourceState('qbx-core') == 'started' then
+    Framework.Name = 'qbx'
+    Framework.Object = exports['qbx-core']:GetCoreObject()
+elseif GetResourceState('qb-core') == 'started' then
+    Framework.Name = 'qbcore'
+    Framework.Object = exports['qb-core']:GetCoreObject()
+end
+
+if Framework.Name == 'standalone' then
+    print('^1[shop]^7 No supported framework (ESX/QBX/QBCore) detected - this resource requires one of them.')
+end
+
+local function Notify(msg)
+    if Framework.Name == 'esx' and Framework.Object then
+        Framework.Object.ShowNotification(msg)
+    elseif (Framework.Name == 'qbcore' or Framework.Name == 'qbx') and Framework.Object then
+        Framework.Object.Functions.Notify(msg, 'primary')
+    else
+        BeginTextCommandThefeedPost('STRING')
+        AddTextComponentSubstringPlayerName(msg)
+        EndTextCommandThefeedPostTicker(false, false)
+    end
+end
+
+-- Populated from the server on load: labels of shops this player is
+-- allowed to see at all (see Config.UsePermissions / shop.permission).
+local allowedShops = {}
+
+RegisterNetEvent('shop:setAllowed', function(labels)
+    allowedShops = {}
+    for _, label in ipairs(labels) do
+        allowedShops[label] = true
     end
 end)
 
-local currentShop = nil
+CreateThread(function()
+    TriggerServerEvent('shop:requestAllowed')
+end)
 
 local function OpenShopMenu(shop)
-    local menuItems = {}
-    for _, entry in ipairs(shop.items) do
-        menuItems[#menuItems + 1] = {
-            label = ('%s - $%d'):format(entry.label, entry.price),
-            value = entry.item,
-        }
-    end
+    if Framework.Name == 'esx' then
+        local menuItems = {}
+        for _, entry in ipairs(shop.items) do
+            menuItems[#menuItems + 1] = { label = ('%s - $%d'):format(entry.label, entry.price), value = entry.item }
+        end
 
-    ESX.UI.Menu.CloseAll()
-    ESX.UI.Menu.Open('default', GetCurrentResourceName(), 'esxshop_buy', {
-        title = shop.label,
-        align = 'top-left',
-        elements = menuItems,
-    }, function(data, menu)
-        local itemName = data.current.value
-        local entry
-        for _, e in ipairs(shop.items) do
-            if e.item == itemName then entry = e break end
+        Framework.Object.UI.Menu.CloseAll()
+        Framework.Object.UI.Menu.Open('default', GetCurrentResourceName(), 'shop_buy', {
+            title = shop.label,
+            align = 'top-left',
+            elements = menuItems,
+        }, function(data, menu)
+            TriggerServerEvent('shop:buyItem', shop.label, data.current.value)
+        end, function(data, menu)
+            menu.close()
+        end)
+    else -- qbcore / qbx (qb-menu)
+        local menu = { { header = shop.label, isMenuHeader = true } }
+        for _, entry in ipairs(shop.items) do
+            menu[#menu + 1] = {
+                header = ('%s - $%d'):format(entry.label, entry.price),
+                params = { event = 'shop:client:buy', args = { shopLabel = shop.label, item = entry.item } },
+            }
         end
-        if entry then
-            TriggerServerEvent('esxshop:buyItem', shop.label, entry.item)
-        end
-    end, function(data, menu)
-        menu.close()
-    end)
+        exports['qb-menu']:openMenu(menu)
+    end
 end
+
+RegisterNetEvent('shop:client:buy', function(data)
+    TriggerServerEvent('shop:buyItem', data.shopLabel, data.item)
+end)
 
 CreateThread(function()
     while true do
@@ -49,9 +87,11 @@ CreateThread(function()
         local nearestShop, nearestDist = nil, Config.DrawDistance
 
         for _, shop in ipairs(Config.Shops) do
-            local dist = #(playerCoords - shop.coords)
-            if dist < nearestDist then
-                nearestShop, nearestDist = shop, dist
+            if allowedShops[shop.label] then
+                local dist = #(playerCoords - shop.coords)
+                if dist < nearestDist then
+                    nearestShop, nearestDist = shop, dist
+                end
             end
         end
 
@@ -65,7 +105,6 @@ CreateThread(function()
             )
 
             if nearestDist < Config.InteractDistance then
-                currentShop = nearestShop
                 BeginTextCommandDisplayHelp('STRING')
                 AddTextComponentSubstringPlayerName('Press ~INPUT_CONTEXT~ to browse the shop')
                 EndTextCommandDisplayHelp(0, false, true, -1)
@@ -73,11 +112,8 @@ CreateThread(function()
                 if IsControlJustReleased(0, 38) then -- E
                     OpenShopMenu(nearestShop)
                 end
-            else
-                currentShop = nil
             end
         else
-            currentShop = nil
             Wait(500)
         end
     end
@@ -98,6 +134,6 @@ CreateThread(function()
     end
 end)
 
-RegisterNetEvent('esxshop:notify', function(msg)
-    ESX.ShowNotification(msg)
+RegisterNetEvent('shop:notify', function(msg)
+    Notify(msg)
 end)
