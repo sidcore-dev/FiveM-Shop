@@ -86,5 +86,8 @@ shop/
 ├── fxmanifest.lua   Resource manifest
 ├── config.lua        Shop locations, items, prices, permissions, marker settings
 ├── client.lua         Framework bridge, marker rendering, blips, shop menu (ESX/QBX/QBCore)
-└── server.lua         Framework bridge, authoritative price lookup, permission checks, money/inventory
+├── server.lua         Framework bridge, authoritative price lookup, permission checks, money/inventory
+├── LICENSE            MIT license
+├── CHANGELOG.md        Version history
+└── .gitignore          OS/editor clutter
 ```
